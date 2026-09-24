@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Absensi — Agama Islam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0E2A28; --panel:#153D38; --line:#25534C;
+    --gold:#C9A24B; --gold-soft:#E7CE93; --cream:#F4EFE4;
+    --text:#EDE7D8; --text-dim:#A9C2BC; --ok:#4FA37B; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text); min-height:100vh;
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    padding:26px 16px 40px;
+  }
+  .wrap{max-width:720px; margin:0 auto;}
+  .eyebrow{color:var(--gold); font-size:13px;}
+  h1{font-family:'Fraunces',serif; font-weight:600; font-size:clamp(24px,5.5vw,32px); margin:4px 0 8px; color:var(--cream);}
+  .meta{color:var(--text-dim); font-size:13.5px; line-height:1.6;}
+  .meta b{color:var(--text);}
+  #status{color:var(--gold-soft); font-size:13px; margin-top:6px;}
+
+  .sessions{display:flex; gap:8px; flex-wrap:wrap; margin:20px 0 6px; align-items:center;}
+  .tab{border:1px solid var(--line); background:var(--panel); color:var(--text-dim); border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; white-space:nowrap;}
+  .tab.active{border-color:var(--gold); color:var(--gold-soft); background:rgba(201,162,75,.12);}
+  .add-session{border:1px dashed var(--line); background:transparent; color:var(--text-dim); border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer;}
+
+  .summary{margin:14px 0 18px;}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:10px 14px; font-size:13.5px; color:var(--text-dim); display:inline-block;}
+  .stat b{color:var(--gold-soft); font-size:16px; font-family:'Fraunces',serif; display:block;}
+
+  .wrap-table{overflow-x:auto;}
+  table{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;}
+  thead th{text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); padding:10px 12px; border-bottom:1px solid var(--line);}
+  tbody td{padding:9px 12px; border-bottom:1px solid var(--line); font-size:14px;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr.checked{background:rgba(79,163,123,.08);}
+  td.no{color:var(--text-dim); width:32px;}
+  td.nim{color:var(--text-dim); font-variant-numeric:tabular-nums; font-size:13px;}
+  td.chk{width:44px; text-align:center;}
+  td.chk input{width:18px; height:18px; accent-color:var(--ok); cursor:pointer;}
+  .name-input, .nim-input{width:100%; background:transparent; border:none; border-bottom:1px dashed var(--line); color:var(--text); font-size:14px; padding:2px 0; font-family:inherit;}
+  .nim-input{font-size:12.5px; color:var(--text-dim);}
+  .name-input:focus, .nim-input:focus{outline:none; border-bottom-color:var(--gold);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Absensi mingguan &middot; setiap hari Kamis</div>
+    <h1>Agama Islam</h1>
+    <div class="meta">Dosen pengampu: <b>Bapak Eko Budianto, S.T., M.T.</b></div>
+    <div id="status">Menghubungkan ke Google Sheets...</div>
+  </header>
+
+  <div class="sessions" id="sessions"></div>
+  <div class="summary" id="summary"></div>
+
+  <div class="wrap-table">
+    <table>
+      <thead><tr><th>No</th><th>Nama</th><th>NIM</th><th>Hadir</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// GANTI dengan URL Web App hasil Deploy Apps Script kamu (diakhiri /exec)
+var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRqvVoUe-pjCZjKw4WoIIA2Bx4Am-gN1HJ-f_GvqIIXzMCpqDpuGohhb7pS0wT5ULO/exec';
+
+var state = { students: [], sessions: [] };
+var activeSession = null;
+
+var statusEl = document.getElementById('status');
+var sessionsEl = document.getElementById('sessions');
+var summaryEl = document.getElementById('summary');
+var rowsEl = document.getElementById('rows');
+
+function fmtDate(iso){
+  var d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('id-ID', { weekday:'short', day:'numeric', month:'short' });
+}
+function nextThursday(iso){
+  var d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0,10);
+}
+
+function load(){
+  statusEl.textContent = 'Memuat data dari Google Sheets...';
+  fetch(SCRIPT_URL)
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      state.students = data.students || [];
+      state.sessions = data.sessions && data.sessions.length ? data.sessions : ['2026-09-03'];
+      activeSession = state.sessions[state.sessions.length - 1];
+      statusEl.textContent = 'Tersambung ke Google Sheets';
+      renderAll();
+    })
+    .catch(function(){
+      statusEl.textContent = 'Gagal menghubungi Google Sheets. Cek SCRIPT_URL di kode.';
+    });
+}
+
+function sendUpdate(nim, nama, date, present){
+  statusEl.textContent = 'Menyimpan ke Google Sheets...';
+  fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ nim: nim, nama: nama, date: date, present: present })
+  }).then(function(){
+    statusEl.textContent = 'Tersimpan ke Google Sheets';
+  }).catch(function(){
+    statusEl.textContent = 'Gagal menyimpan, coba lagi.';
+  });
+}
+
+function renderSessions(){
+  sessionsEl.innerHTML = '';
+  state.sessions.forEach(function(s){
+    var b = document.createElement('button');
+    b.className = 'tab' + (s === activeSession ? ' active' : '');
+    b.textContent = fmtDate(s);
+    b.addEventListener('click', function(){ activeSession = s; renderAll(); });
+    sessionsEl.appendChild(b);
+  });
+  var add = document.createElement('button');
+  add.className = 'add-session';
+  add.textContent = '+ Pertemuan berikutnya';
+  add.addEventListener('click', function(){
+    var last = state.sessions[state.sessions.length - 1];
+    var next = nextThursday(last);
+    if (state.sessions.indexOf(next) === -1){
+      state.sessions.push(next);
+      activeSession = next;
+      renderAll();
+    }
+  });
+  sessionsEl.appendChild(add);
+}
+
+function renderSummary(){
+  var hadir = 0;
+  state.students.forEach(function(st){ if (st.attendance[activeSession]) hadir++; });
+  summaryEl.innerHTML = '<div class="stat"><b>' + hadir + '/' + state.students.length + '</b>Hadir pada ' + fmtDate(activeSession) + '</div>';
+}
+
+function renderRows(){
+  rowsEl.innerHTML = '';
+  state.students.forEach(function(st, idx){
+    var present = !!st.attendance[activeSession];
+    var tr = document.createElement('tr');
+    if (present) tr.classList.add('checked');
+
+    var tdNo = document.createElement('td'); tdNo.className = 'no'; tdNo.textContent = idx + 1;
+    tr.appendChild(tdNo);
+
+    var tdName = document.createElement('td');
+    var nameInput = document.createElement('input');
+    nameInput.className = 'name-input'; nameInput.placeholder = 'Nama mahasiswa'; nameInput.value = st.nama;
+    nameInput.addEventListener('change', function(){ st.nama = nameInput.value; sendUpdate(st.nim, st.nama, activeSession, present); });
+    tdName.appendChild(nameInput); tr.appendChild(tdName);
+
+    var tdNim = document.createElement('td'); tdNim.className = 'nim';
+    var nimInput = document.createElement('input');
+    nimInput.className = 'nim-input'; nimInput.placeholder = 'NIM'; nimInput.value = st.nim;
+    nimInput.addEventListener('change', function(){ st.nim = nimInput.value; });
+    tdNim.appendChild(nimInput); tr.appendChild(tdNim);
+
+    var tdChk = document.createElement('td'); tdChk.className = 'chk';
+    var chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = present;
+    chk.addEventListener('change', function(){
+      st.attendance[activeSession] = chk.checked;
+      sendUpdate(st.nim, st.nama, activeSession, chk.checked);
+      renderRows(); renderSummary();
+    });
+    tdChk.appendChild(chk); tr.appendChild(tdChk);
+
+    rowsEl.appendChild(tr);
+  });
+}
+
+function renderAll(){ renderSessions(); renderSummary(); renderRows(); }
+
+load();
+</script>
+</body>
+</html>
